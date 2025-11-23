@@ -1,26 +1,28 @@
 version: "3.8"
 
-
 x-airflow-common:
   &airflow-common
   image: apache/airflow:2.9.1-python3.10
+  env_file:
+    - .env
   environment:
     &airflow-common-env
     AIRFLOW__CORE__EXECUTOR: CeleryExecutor
     AIRFLOW__CORE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
-    AIRFLOW__CORE__FERNET_KEY: ''
+    AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW__CORE__FERNET_KEY:-}
     AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: 'true'
     AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
     AIRFLOW__API__AUTH_BACKENDS: 'airflow.api.auth.backend.basic_auth'
     AIRFLOW__CELERY__RESULT_BACKEND: db+postgresql://airflow:airflow@postgres/airflow
     AIRFLOW__CELERY__BROKER_URL: redis://redis:6379/0
-    AIRFLOW_UID: 50000
+    AIRFLOW_UID: ${AIRFLOW_UID:-50000}
     _PIP_ADDITIONAL_REQUIREMENTS: ""
   volumes:
     - ./dags:/opt/airflow/dags
     - ./logs:/opt/airflow/logs
     - ./plugins:/opt/airflow/plugins
     - ./data:/opt/airflow/data
+    - ./scripts:/opt/airflow/scripts
   user: "${AIRFLOW_UID:-50000}:0"
   depends_on:
     redis:
@@ -41,9 +43,22 @@ services:
       retries: 5
     ports:
       - "6543:5432"
-
     volumes:
       - ./pgdata:/var/lib/postgresql/data
+      - ./init-db.sql:/docker-entrypoint-initdb.d/init-db.sql
+
+  pgadmin:
+    image: dpage/pgadmin4
+    restart: unless-stopped
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@admin.com
+      PGADMIN_DEFAULT_PASSWORD: root
+    ports:
+      - "5050:80"
+    volumes:
+      - pgadmin-data:/var/lib/pgadmin
+    depends_on:
+      - postgres
 
   redis:
     image: redis:7
@@ -51,6 +66,10 @@ services:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
       retries: 5
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
 
   airflow-init:
     <<: *airflow-common
@@ -63,13 +82,20 @@ services:
                         --role Admin \
                         --email admin@example.com \
                         --password airflow && \
-                      echo 'Airflow DB initialized and user created'"
+                      python /opt/airflow/scripts/ensure_database.py && \
+                      echo 'Airflow DB initialized, user created, and ny_taxi database ensured'"
     restart: "no"
     volumes:
       - ./dags:/opt/airflow/dags
       - ./logs:/opt/airflow/logs
       - ./plugins:/opt/airflow/plugins
       - ./data:/opt/airflow/data
+      - ./scripts:/opt/airflow/scripts
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: airflow
 
   airflow-webserver:
     <<: *airflow-common
@@ -80,26 +106,16 @@ services:
       test: ["CMD", "curl", "--fail", "http://localhost:8080/health"]
       interval: 10s
       retries: 5
-    volumes:
-      - ./dags:/opt/airflow/dags
-      - ./logs:/opt/airflow/logs
-      - ./plugins:/opt/airflow/plugins
-      - ./data:/opt/airflow/data
 
   airflow-scheduler:
     <<: *airflow-common
     command: scheduler
-    volumes:
-      - ./dags:/opt/airflow/dags
-      - ./logs:/opt/airflow/logs
-      - ./plugins:/opt/airflow/plugins
-      - ./data:/opt/airflow/data
 
   airflow-worker:
     <<: *airflow-common
     command: celery worker
-    volumes:
-      - ./dags:/opt/airflow/dags
-      - ./logs:/opt/airflow/logs
-      - ./plugins:/opt/airflow/plugins
-      - ./data:/opt/airflow/data
+
+volumes:
+  pgadmin-data:
+  pgdata:
+  redis-data:

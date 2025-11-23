@@ -13,6 +13,9 @@ venv/
 ENV/
 env.bak/
 
+# Scripts (keep scripts directory, ignore compiled files)
+scripts/__pycache__/
+
 # Airflow
 logs/
 plugins/__pycache__/
@@ -42,4 +45,5 @@ data/
 *.seed
 *.bak
 pgdata/
+pgadmin-data/
 __pycache__/
