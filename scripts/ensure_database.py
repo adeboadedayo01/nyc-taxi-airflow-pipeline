@@ -3,7 +3,7 @@
 Script to ensure ny_taxi database exists.
 Can be run multiple times safely.
 """
-import psycopg2
+import psycopg2 # pyright: ignore[reportMissingModuleSource]
 import sys
 import os
 
