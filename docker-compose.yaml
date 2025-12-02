@@ -1,5 +1,3 @@
-version: "3.8"
-
 x-airflow-common:
   &airflow-common
   image: apache/airflow:2.9.1-python3.10
@@ -47,29 +45,12 @@ services:
       - ./pgdata:/var/lib/postgresql/data
       - ./init-db.sql:/docker-entrypoint-initdb.d/init-db.sql
 
-  pgadmin:
-    image: dpage/pgadmin4
-    restart: unless-stopped
-    environment:
-      PGADMIN_DEFAULT_EMAIL: admin@admin.com
-      PGADMIN_DEFAULT_PASSWORD: root
-    ports:
-      - "5050:80"
-    volumes:
-      - pgadmin-data:/var/lib/pgadmin
-    depends_on:
-      - postgres
-
   redis:
     image: redis:7
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
       retries: 5
-    ports:
-      - "6379:6379"
-    volumes:
-      - redis-data:/data
 
   airflow-init:
     <<: *airflow-common
@@ -106,16 +87,26 @@ services:
       test: ["CMD", "curl", "--fail", "http://localhost:8080/health"]
       interval: 10s
       retries: 5
+    volumes:
+      - ./dags:/opt/airflow/dags
+      - ./logs:/opt/airflow/logs
+      - ./plugins:/opt/airflow/plugins
+      - ./data:/opt/airflow/data
 
   airflow-scheduler:
     <<: *airflow-common
     command: scheduler
+    volumes:
+      - ./dags:/opt/airflow/dags
+      - ./logs:/opt/airflow/logs
+      - ./plugins:/opt/airflow/plugins
+      - ./data:/opt/airflow/data
 
   airflow-worker:
     <<: *airflow-common
     command: celery worker
-
-volumes:
-  pgadmin-data:
-  pgdata:
-  redis-data:
+    volumes:
+      - ./dags:/opt/airflow/dags
+      - ./logs:/opt/airflow/logs
+      - ./plugins:/opt/airflow/plugins
+      - ./data:/opt/airflow/data

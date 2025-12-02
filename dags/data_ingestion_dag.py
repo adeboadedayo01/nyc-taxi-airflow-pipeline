@@ -32,21 +32,6 @@ def ensure_data_dir_exists():
         logger.error(f"Failed to create data directory: {e}")
         raise
 
-def drop_table_if_exists(**context):
-    """Drops the table if it exists to avoid duplicates."""
-    engine = create_engine(f"postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}")
-    with engine.connect() as conn:
-        conn.execute(f'DROP TABLE IF EXISTS {TABLE_NAME} CASCADE')
-        conn.commit()
-    logger.info(f"Table {TABLE_NAME} dropped (will be recreated on first insert)")
-
-drop_table = PythonOperator(
-    task_id='drop_yellow_taxi_table',
-    python_callable=drop_table_if_exists,
-    retries=2,
-    retry_delay=timedelta(minutes=5)
-)
-
 def ingest_to_postgres(**context):
     """Reads CSV and loads it into Postgres with error handling and chunking."""
     # Build file path from execution date (template rendering)
@@ -73,12 +58,10 @@ def ingest_to_postgres(**context):
         total_rows = 0
         
         for chunk_num, chunk_df in enumerate(pd.read_csv(file_path, compression='gzip', chunksize=chunk_size)):
-            if_exists_mode = 'replace' if chunk_num == 0 else 'append'
-            chunk_df.columns = [c.strip().lower() for c in chunk_df.columns]
             chunk_df.to_sql(
                 TABLE_NAME, 
                 con=engine, 
-                if_exists=if_exists_mode,
+                if_exists='append', 
                 index=False,
                 method='multi'
             )
@@ -97,7 +80,7 @@ def ingest_to_postgres(**context):
 with DAG(
     dag_id="data_ingestion_local",
     schedule="@monthly", 
-    start_date=datetime(2021, 2, 1),
+    start_date=datetime(2021, 1, 1),
     end_date=datetime(2021, 3, 1),
     catchup=True,
     max_active_runs=1,
@@ -112,25 +95,37 @@ with DAG(
         retry_delay=timedelta(minutes=1)
     )
 
-    
+    #download_dataset = BashOperator(
+    #    task_id='download_dataset',
+    #    bash_command='curl -sSL "{{ params.url }}" -o "{{ params.output }}" && \
+    #                  if [ ! -s "{{ params.output }}" ]; then \
+    #                    echo "Error: Downloaded file is empty" && exit 1; \
+    #                  fi',
+    #    params={
+    #        'url': URL_TEMPLATE,
+    #        'output': OUTPUT_FILE_TEMPLATE
+    #    },
+    #    retries=3,
+    #    retry_delay=timedelta(minutes=2)
+    #)
 
-download_dataset = BashOperator(
-    task_id='download_dataset',
-    bash_command="""
-       curl -sSL "https://github.com/DataTalksClub/nyc-tlc-data/releases/download/yellow/yellow_tripdata_{{ execution_date.strftime('%Y-%m') }}.csv.gz" \
-        -o "/opt/airflow/data/output_{{ execution_date.strftime('%Y-%m') }}.csv.gz" && \
-       [ -s "/opt/airflow/data/output_{{ execution_date.strftime('%Y-%m') }}.csv.gz" ] || \
-           { echo "Error: Downloaded file is empty"; exit 1; }
-    """,
-    retries=3,
-    retry_delay=timedelta(minutes=2)
-)
+    download_dataset = BashOperator(
+        task_id='download_dataset',
+        bash_command="""
+            curl -sSL "https://github.com/DataTalksClub/nyc-tlc-data/releases/download/yellow/yellow_tripdata_{{ execution_date.strftime('%Y-%m') }}.csv.gz" \
+                 -o "/opt/airflow/data/output_{{ execution_date.strftime('%Y-%m') }}.csv.gz" && \
+            [ -s "/opt/airflow/data/output_{{ execution_date.strftime('%Y-%m') }}.csv.gz" ] || \
+                { echo "Error: Downloaded file is empty"; exit 1; }
+        """,
+        retries=3,
+        retry_delay=timedelta(minutes=2)
+    )
 
-ingest_task = PythonOperator(
-    task_id='ingest_to_postgres',
-    python_callable=ingest_to_postgres,
-    retries=2,
-    retry_delay=timedelta(minutes=5)
-)
+    ingest_task = PythonOperator(
+        task_id='ingest_to_postgres',
+        python_callable=ingest_to_postgres,
+        retries=2,
+        retry_delay=timedelta(minutes=5)
+    )
 
-create_data_dir >> download_dataset >> ingest_task
+    create_data_dir >> download_dataset >> ingest_task
