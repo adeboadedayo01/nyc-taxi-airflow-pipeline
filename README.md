@@ -26,7 +26,7 @@ The Airflow DAG (`data_ingestion_local`) performs:
 
 ## ⚙️ Project Structure
 ├── dags/
-│ └── data_ingestion_local.py # Airflow DAG
+│ └── data_ingestion_dag.py # Airflow DAG
 ├── data/ # Local data folder (mounted in containers)
 ├── logs/ # Airflow logs
 ├── plugins/ # Custom Airflow plugins (optional)
@@ -43,7 +43,8 @@ The Airflow DAG (`data_ingestion_local`) performs:
 
 - Docker and Docker Compose installed
 - At least 4GB of free disk space
-- Ports 8080 and 6543 available
+- Port 8080 available (for Airflow Web UI)
+- Port 6379 available (for Redis)
 
 ### 2️⃣ Clone the repository
 
@@ -66,17 +67,29 @@ python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().d
 
 ### 4️⃣ Configure Environment Variables
 
-Copy the example environment file and add your Fernet key:
+Create a `.env` file in the project root and add your generated Fernet key and database configuration:
 
 ```bash
-cp env.example .env
-```
-
-Edit `.env` and add your generated Fernet key:
-
-```bash
+# Create .env file
+cat > .env << EOF
 AIRFLOW__CORE__FERNET_KEY=your_generated_fernet_key_here
+DB_USER=your_db_user
+DB_PASSWORD=your_db_password
+DB_HOST=your_db_host
+DB_PORT=5432
+DB_NAME=your_db_name
+AIRFLOW_UID=50000
+EOF
 ```
+
+**Required environment variables:**
+- `AIRFLOW__CORE__FERNET_KEY`: Your generated Fernet key from step 3
+- `DB_USER`: Database username
+- `DB_PASSWORD`: Database password
+- `DB_HOST`: Database host (e.g., RDS endpoint)
+- `DB_PORT`: Database port (default: 5432)
+- `DB_NAME`: Database name
+- `AIRFLOW_UID`: Airflow user ID (optional, default: 50000)
 
 ### 5️⃣ Set Airflow User ID (Optional)
 
@@ -109,31 +122,7 @@ docker-compose up -d
   - Username: `airflow`
   - Password: `airflow`
 
-### 8️⃣ Access pgAdmin (Database Management)
-
-- Open your browser and navigate to: `http://localhost:5050`
-- Login with:
-  - Email: `admin@admin.com`
-  - Password: `admin`
-
-**To connect to PostgreSQL from pgAdmin:**
-1. Right-click on "Servers" → "Register" → "Server"
-2. **General Tab:**
-   - Name: `NYC Taxi Database` (or any name you prefer)
-3. **Connection Tab:**
-   - Host name/address: `postgres` (use the Docker service name)
-   - Port: `5432`
-   - Maintenance database: `airflow`
-   - Username: `airflow`
-   - Password: `airflow`
-   - Check "Save password"
-4. Click "Save"
-
-**To access the ny_taxi database:**
-- After connecting, expand "Databases" → `ny_taxi` → "Schemas" → "public" → "Tables"
-- You'll see the `yellow_taxi_data` table after the pipeline runs
-
-### 9️⃣ Enable and Run the DAG
+### 8️⃣ Enable and Run the DAG
 
 1. In the Airflow UI, find the `data_ingestion_local` DAG
 2. Toggle it ON (unpause) using the switch on the left
@@ -146,21 +135,19 @@ docker-compose up -d
 
 ### Database Configuration
 
-The pipeline uses a PostgreSQL database named `ny_taxi`. The database is automatically created during initialization.
+The pipeline uses a PostgreSQL database (configured via environment variables). The database is automatically created during initialization if it doesn't exist.
 
-- **Host**: `postgres` (internal Docker network) or `localhost` (external)
-- **Port**: `5432` (internal), `6543` (external)
-- **Database**: `ny_taxi` (for taxi data) or `airflow` (for Airflow metadata)
-- **User**: `airflow`
-- **Password**: `airflow`
+- **Host**: Configured via `DB_HOST` environment variable (e.g., AWS RDS endpoint)
+- **Port**: Configured via `DB_PORT` environment variable (default: `5432`)
+- **Database**: Configured via `DB_NAME` environment variable
+- **User**: Configured via `DB_USER` environment variable
+- **Password**: Configured via `DB_PASSWORD` environment variable
 
 ### Accessing Services
 
 | Service | URL | Credentials |
 |---------|-----|-------------|
 | **Airflow Web UI** | http://localhost:8080 | Username: `airflow`, Password: `airflow` |
-| **pgAdmin** | http://localhost:5050 | Email: `admin@admin.com`, Password: `admin` |
-| **PostgreSQL** | localhost:6543 | User: `airflow`, Password: `airflow` |
 
 ### Customizing Database Settings
 
@@ -202,7 +189,7 @@ NYC Yellow Taxi trip data from [DataTalksClub GitHub releases](https://github.co
 ### Common Issues
 
 **Issue**: DAG fails with "database does not exist"
-- **Solution**: Ensure `postgres-init` service completed successfully. Check logs: `docker-compose logs postgres-init`
+- **Solution**: Ensure `airflow-init` service completed successfully. Check logs: `docker-compose logs airflow-init`
 
 **Issue**: Download task fails
 - **Solution**: Check network connectivity and verify the URL is accessible
@@ -248,10 +235,10 @@ airflow/
 ├── data/                         # Downloaded data files (gitignored)
 ├── logs/                         # Airflow logs (gitignored)
 ├── plugins/                      # Custom Airflow plugins
-├── pgdata/                       # PostgreSQL data (gitignored)
+├── scripts/                      # Utility scripts
+│   └── ensure_database.py        # Database initialization script
 ├── docker-compose.yaml           # Docker Compose configuration
 ├── requirements.txt              # Python dependencies
-├── env.example                   # Environment variables template
 ├── .env                          # Your environment variables (gitignored)
 ├── .gitignore
 └── README.md
@@ -271,4 +258,4 @@ airflow/
 ## 📝 License
 
 All rights reserved.
-This project is for educational purposes as part of the Data Engineering Zoomcamp.
+
