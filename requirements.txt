@@ -3,6 +3,8 @@ pandas>=2.0.0
 sqlalchemy>=2.0.0
 psycopg2-binary>=2.9.0
 python-dotenv>=1.0.0
+apache-airflow-providers-postgres
+
 
 # Airflow dependencies are handled by the Docker image
 # apache-airflow==2.9.1 (included in docker image)

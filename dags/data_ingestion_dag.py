@@ -3,6 +3,7 @@ from airflow import DAG  # type: ignore
 from airflow.operators.bash import BashOperator # type: ignore
 from airflow.operators.python import PythonOperator # type: ignore
 from airflow.providers.postgres.hooks.postgres import PostgresHook # type: ignore
+from airflow.providers.postgres.operators.postgres import PostgresOperator # type: ignore
 import pandas as pd # type: ignore
 import os
 import logging
@@ -86,4 +87,11 @@ with DAG(
         retry_delay=timedelta(minutes=5)
     )
 
-    create_data_dir >> download_dataset >> ingest_task
+    transform_task = PostgresOperator(
+        task_id="transform_data",
+        postgres_conn_id=POSTGRES_CONN_ID,
+        sql="sql/transform.sql"
+    )
+
+
+    create_data_dir >> download_dataset >> ingest_task >> transform_task

@@ -5,12 +5,11 @@ x-airflow-common: &airflow-common
   env_file:
     - .env
   environment:
-    &airflow-common-env
-    AIRFLOW__CORE__EXECUTOR: CeleryExecutor
+    AIRFLOW__CORE__EXECUTOR: LocalExecutor
+    AIRFLOW__CORE__PIP_ADDITIONAL_REQUIREMENTS: apache-airflow-providers-postgres
 
-    # --- RDS Postgres Connection ---
+    # --- Airflow metadata DB (RDS Postgres) ---
     AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${DB_USER}:${DB_PASSWORD}@${DB_HOST}:${DB_PORT}/${DB_NAME}
-    AIRFLOW__CORE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${DB_USER}:${DB_PASSWORD}@${DB_HOST}:${DB_PORT}/${DB_NAME}
 
     # --- Airflow settings ---
     AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW__CORE__FERNET_KEY}
@@ -18,78 +17,49 @@ x-airflow-common: &airflow-common
     AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "true"
 
     # --- API authentication ---
-    AIRFLOW__API__AUTH_BACKENDS: "airflow.api.auth.backend.basic_auth,airflow.api.auth.backend.session"
-
-    # --- Celery backend + Redis ---
-    AIRFLOW__CELERY__BROKER_URL: redis://redis:6379/0
-    AIRFLOW__CELERY__RESULT_BACKEND: db+postgresql://${DB_USER}:${DB_PASSWORD}@${DB_HOST}:${DB_PORT}/${DB_NAME}
+    AIRFLOW__API__AUTH_BACKENDS: airflow.api.auth.backend.basic_auth,airflow.api.auth.backend.session
 
     AIRFLOW_UID: ${AIRFLOW_UID:-50000}
 
-    AIRFLOW__WEBSERVER__WEB_SERVER_MASTER_TIMEOUT: 300
-    AIRFLOW__WEBSERVER__WEB_SERVER_WORKER_TIMEOUT: 300
-
-    AIRFLOW__WEBSERVER__AUTH_RATE_LIMITER_ENABLED: "false"
-    AIRFLOW_WEBSERVER_WORKERS: 2
+    AIRFLOW__WEBSERVER__WEB_SERVER_MASTER_TIMEOUT: 120
+    AIRFLOW__WEBSERVER__WEB_SERVER_WORKER_TIMEOUT: 120
+    AIRFLOW_WEBSERVER_WORKERS: 1
 
   volumes:
     - ./dags:/opt/airflow/dags
+    - ./sql:/opt/airflow/sql
     - ./logs:/opt/airflow/logs
     - ./plugins:/opt/airflow/plugins
     - ./data:/opt/airflow/data
     - ./scripts:/opt/airflow/scripts
-
-  depends_on:
-    redis:
-      condition: service_healthy
+    - ./requirements.txt:/requirements.txt
 
 
 services:
-
-  #########################################
-  # Redis - Celery broker
-  #########################################
-  redis:
-    image: redis:7
-    ports:
-      - "6379:6379"
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      retries: 10
-
 
   #########################################
   # Airflow DB Initialization
   #########################################
   airflow-init:
     <<: *airflow-common
-    user: "0:0"   # MUST run as root to fix permissions
+    user: "0:0"
     entrypoint: /bin/bash
     command: >
       -c "
-      echo 'Setting permissions...' &&
       mkdir -p /opt/airflow/data &&
       chown -R ${AIRFLOW_UID:-50000}:0 /opt/airflow &&
-
-      echo 'Running Airflow DB migrations...' &&
+      pip install --no-cache-dir -r /requirements.txt || true &&
       airflow db migrate &&
-
-      echo 'Creating admin user...' &&
-      airflow users create --username airflow --password airflow --firstname Admin --lastname User --role Admin --email admin@example.com &&
-
-      echo 'Executing post-init...' &&
-      python /opt/airflow/scripts/ensure_database.py || true &&
-
-      echo 'Initialization complete!'
+      airflow users create
+        --username airflow
+        --password airflow
+        --firstname Admin
+        --lastname User
+        --role Admin
+        --email admin@example.com || true &&
+      python /opt/airflow/scripts/ensure_database.py || true
       "
     restart: "no"
-    environment:
-      POSTGRES_HOST: ${DB_HOST}
-      POSTGRES_PORT: ${DB_PORT}
-      POSTGRES_USER: ${DB_USER}
-      POSTGRES_PASSWORD: ${DB_PASSWORD}
-      POSTGRES_DATABASE: ${DB_NAME}
 
 
   #########################################
@@ -103,8 +73,7 @@ services:
     depends_on:
       airflow-init:
         condition: service_completed_successfully
-      redis:
-        condition: service_healthy
+    restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "--fail", "http://localhost:8080/health"]
       interval: 10s
@@ -120,31 +89,10 @@ services:
     depends_on:
       airflow-init:
         condition: service_completed_successfully
-      redis:
-        condition: service_healthy
-
-
-  #########################################
-  # Celery Worker
-  #########################################
-  airflow-worker:
-    <<: *airflow-common
-    command: celery worker
-    depends_on:
-      airflow-init:
-        condition: service_completed_successfully
-      redis:
-        condition: service_healthy
-
-
-  #########################################
-  # Triggerer (Optional but recommended)
-  #########################################
-  airflow-triggerer:
-    <<: *airflow-common
-    command: triggerer
-    depends_on:
-      airflow-init:
-        condition: service_completed_successfully
-      redis:
-        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pgrep -f 'airflow scheduler' || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
