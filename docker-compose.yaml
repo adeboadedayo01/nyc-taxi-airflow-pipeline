@@ -1,4 +1,4 @@
-version: "3.8"
+
 
 x-airflow-common: &airflow-common
   image: apache/airflow:2.9.1-python3.10
@@ -33,6 +33,9 @@ x-airflow-common: &airflow-common
     - ./data:/opt/airflow/data
     - ./scripts:/opt/airflow/scripts
     - ./requirements.txt:/requirements.txt
+    - ./dbt_project:/opt/airflow/dbt_project
+    - ./dbt_project/ny_taxi_dbt/.dbt:/opt/airflow/.dbt
+
 
 
 services:
@@ -68,6 +71,9 @@ services:
   airflow-webserver:
     <<: *airflow-common
     command: webserver
+    build:
+      context: .
+      dockerfile: sql/Dockerfile
     ports:
       - "8080:8080"
     depends_on:
@@ -86,6 +92,9 @@ services:
   airflow-scheduler:
     <<: *airflow-common
     command: scheduler
+    build:
+      context: .
+      dockerfile: sql/Dockerfile
     depends_on:
       airflow-init:
         condition: service_completed_successfully

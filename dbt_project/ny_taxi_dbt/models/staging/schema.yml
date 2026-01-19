@@ -1,0 +1,37 @@
+version: 2
+
+models:
+  - name: stg_yellow_taxi
+    description: "Cleaned and standardized Yellow Taxi trip data from raw ingestion"
+    columns:
+      - name: vendor_id
+        description: "Code indicating the provider associated with the trip record"
+        tests:
+          - not_null
+
+      - name: pickup_datetime
+        description: "Datetime when the trip started"
+        tests:
+          - not_null
+
+      - name: dropoff_datetime
+        description: "Datetime when the trip ended"
+        tests:
+          - not_null
+
+      - name: pickup_location_id
+        description: "Pickup taxi zone location ID"
+        tests:
+          - not_null
+
+      - name: dropoff_location_id
+        description: "Dropoff taxi zone location ID"
+        tests:
+          - not_null
+
+      - name: fare_amount
+        description: "Fare amount charged for the trip"
+
+      - name: total_amount
+        description: "Total amount charged including taxes, tips, tolls, and surcharges"
+

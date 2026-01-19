@@ -1,39 +1,78 @@
-# 🚖 NYC Taxi Data Ingestion with Apache Airflow
+# 🚖 NYC Taxi Data Pipeline with Apache Airflow
 
-This project automates the **download and ingestion** of NYC Yellow Taxi data into a **PostgreSQL** database using **Apache Airflow**.  
+This project automates the **download, ingestion, transformation, and warehousing** of NYC Yellow Taxi data into a **PostgreSQL** database using **Apache Airflow**. The pipeline implements a modern ELT (Extract, Load, Transform) pattern with staging and analytics layers.
+
 ---
 
 ## 🧠 Project Overview
-The pipeline performs the following steps:
 
-Download Dataset: Fetch monthly NYC Yellow Taxi trip data from the DataTalksClub GitHub releases.
-Load to Postgres: Use Pandas and SQLAlchemy to load the dataset into a PostgreSQL table (yellow_taxi_data).
-Orchestrate with Airflow: Manage task dependencies and scheduling with Airflow DAGs.
+The pipeline consists of two main workflows:
+
+### 1. Data Ingestion Pipeline (`data_ingestion_local`)
+- **Extract**: Downloads monthly NYC Yellow Taxi trip data from the DataTalksClub GitHub releases
+- **Load**: Uses Pandas and SQLAlchemy to load the dataset into a PostgreSQL table (`yellow_taxi_data`)
+- **Transform**: Basic data transformation using SQL
+
+### 2. Warehouse Fact Table Pipeline (`warehouse_fact_trips`)
+- **Load Fact Table**: Aggregates trip data from staging into a dimensional fact table
+- **Data Quality Checks**: Validates data integrity with multiple DQ checks
 
 ### 🔹 Tools Used
-- **Apache Airflow** — workflow orchestration  
-- **PostgreSQL** — data warehouse  
-- **Docker & Docker Compose** — containerized setup  
-- **Python, Pandas, SQLAlchemy** — data processing  
-- **Redis + Celery** — distributed task queue for Airflow  
+- **Apache Airflow** — workflow orchestration (LocalExecutor)
+- **PostgreSQL** — data warehouse
+- **Docker & Docker Compose** — containerized setup
+- **Python, Pandas, SQLAlchemy** — data processing
+- **dbt (Data Build Tool)** — SQL transformation layer (optional, models available)
+- **Postgres Operators** — database operations and data quality checks
 
-### 🔹 Workflow
-The Airflow DAG (`data_ingestion_local`) performs:
-1. **Download** — retrieves monthly NYC Yellow Taxi data (CSV.gz) from GitHub  
-2. **Ingestion** — loads data into a PostgreSQL table (`yellow_taxi_data`)  
+### 🔹 Data Flow
+
+```
+GitHub Releases (CSV.gz)
+    ↓
+[Data Ingestion DAG]
+    ↓
+yellow_taxi_data (Raw Data)
+    ↓
+staging.stg_yellow_taxi (Staging Layer)
+    ↓
+analytics.fact_trips (Analytics/Data Warehouse Layer)
+```
 
 ---
 
 ## ⚙️ Project Structure
+
+```
+airflow/
 ├── dags/
-│ └── data_ingestion_dag.py # Airflow DAG
-├── data/ # Local data folder (mounted in containers)
-├── logs/ # Airflow logs
-├── plugins/ # Custom Airflow plugins (optional)
-├── docker-compose.yaml # Airflow multi-container setup
-├── .env # Environment variables (ignored in Git)
+│   ├── data_ingestion_dag.py          # Data ingestion pipeline DAG
+│   └── warehouse_fact_trips_dag.py    # Fact table loading and DQ DAG
+├── dbt_project/
+│   └── ny_taxi_dbt/                   # dbt project for transformations
+│       ├── models/
+│       │   ├── staging/               # Staging layer models
+│       │   │   ├── stg_yellow_taxi.sql
+│       │   │   └── schema.yml
+│       │   ├── analytics/             # Analytics layer models
+│       │   │   ├── fact_trips.sql
+│       │   │   └── schema.yml
+│       │   └── sources/               # Source definitions
+│       │       └── raw_sources.yml
+│       └── dbt_project.yml
+├── data/                              # Local data folder (mounted in containers)
+├── sql/                               # SQL transformation scripts
+│   └── transform.sql
+├── scripts/                           # Utility scripts
+│   └── ensure_database.py            # Database initialization script
+├── logs/                              # Airflow logs
+├── plugins/                           # Custom Airflow plugins (optional)
+├── docker-compose.yaml                # Airflow multi-container setup
+├── requirements.txt                   # Python dependencies
+├── .env                               # Environment variables (ignored in Git)
 ├── .gitignore
 └── README.md
+```
 
 ---
 
@@ -44,7 +83,6 @@ The Airflow DAG (`data_ingestion_local`) performs:
 - Docker and Docker Compose installed
 - At least 4GB of free disk space
 - Port 8080 available (for Airflow Web UI)
-- Port 6379 available (for Redis)
 
 ### 2️⃣ Clone the repository
 
@@ -86,10 +124,10 @@ EOF
 - `AIRFLOW__CORE__FERNET_KEY`: Your generated Fernet key from step 3
 - `DB_USER`: Database username
 - `DB_PASSWORD`: Database password
-- `DB_HOST`: Database host (e.g., RDS endpoint)
-- `DB_PORT`: Database port (default: 5432)
+- `DB_HOST`: Database host (e.g., AWS RDS endpoint)
+- `DB_PORT`: Database port (default: `5432`)
 - `DB_NAME`: Database name
-- `AIRFLOW_UID`: Airflow user ID (optional, default: 50000)
+- `AIRFLOW_UID`: Airflow user ID (optional, default: `50000`)
 
 ### 5️⃣ Set Airflow User ID (Optional)
 
@@ -122,11 +160,18 @@ docker-compose up -d
   - Username: `airflow`
   - Password: `airflow`
 
-### 8️⃣ Enable and Run the DAG
+### 8️⃣ Enable and Run the DAGs
 
-1. In the Airflow UI, find the `data_ingestion_local` DAG
-2. Toggle it ON (unpause) using the switch on the left
-3. The DAG will run monthly starting from 2021-01-01 to 2021-03-01
+1. In the Airflow UI, find the following DAGs:
+   - `data_ingestion_local` — Data ingestion pipeline
+   - `warehouse_fact_trips` — Fact table loading and data quality checks
+
+2. Toggle them ON (unpause) using the switch on the left
+
+3. The DAGs will run according to their schedules:
+   - **data_ingestion_local**: Monthly starting from 2021-01-01 to 2021-03-01
+   - **warehouse_fact_trips**: Daily (incremental loads)
+
 4. Monitor the progress in the Airflow UI
 
 ---
@@ -143,44 +188,88 @@ The pipeline uses a PostgreSQL database (configured via environment variables). 
 - **User**: Configured via `DB_USER` environment variable
 - **Password**: Configured via `DB_PASSWORD` environment variable
 
+### Postgres Connection
+
+The DAGs use a Postgres connection ID: `pg_ny_taxi`. Ensure this connection is configured in Airflow:
+
+1. Go to **Admin → Connections** in Airflow UI
+2. Add/edit connection with ID: `pg_ny_taxi`
+3. Configure with your database credentials:
+   - **Connection Type**: `Postgres`
+   - **Host**: Your database host
+   - **Schema**: Your database name
+   - **Login**: Database username
+   - **Password**: Database password
+   - **Port**: 5432
+
 ### Accessing Services
 
 | Service | URL | Credentials |
 |---------|-----|-------------|
 | **Airflow Web UI** | http://localhost:8080 | Username: `airflow`, Password: `airflow` |
 
-### Customizing Database Settings
-
-You can override database settings using Airflow Variables:
-
-1. Go to Admin → Variables in Airflow UI
-2. Add variables:
-   - `DB_USER`: Database username (default: `airflow`)
-   - `DB_PASSWORD`: Database password (default: `airflow`)
-   - `DB_HOST`: Database host (default: `postgres`)
-   - `DB_PORT`: Database port (default: `5432`)
-   - `DB_NAME`: Database name (default: `ny_taxi`)
-
 ---
 
 ## 📊 Data Pipeline Details
 
-### DAG Schedule
+### DAG 1: Data Ingestion (`data_ingestion_local`)
 
-- **Schedule**: Monthly (`@monthly`)
+**Schedule**: Monthly (`@monthly`)
 - **Start Date**: 2021-01-01
 - **End Date**: 2021-03-01
 - **Catchup**: Enabled (will backfill missing months)
+- **Max Active Runs**: 1
 
-### Tasks
-
+**Tasks:**
 1. **create_data_dir**: Ensures the data directory exists
 2. **download_dataset**: Downloads monthly CSV.gz file from GitHub
-3. **ingest_to_postgres**: Loads data into PostgreSQL in chunks (100k rows per chunk)
+3. **ingest_to_postgres**: Loads data into PostgreSQL table `yellow_taxi_data` in chunks (100k rows per chunk)
+4. **transform_data**: Executes SQL transformation script
 
-### Data Source
-
+**Data Source:**
 NYC Yellow Taxi trip data from [DataTalksClub GitHub releases](https://github.com/DataTalksClub/nyc-tlc-data/releases)
+
+**Output Table:**
+- `yellow_taxi_data` — Raw ingested taxi trip data
+
+### DAG 2: Warehouse Fact Table (`warehouse_fact_trips`)
+
+**Schedule**: Daily (`@daily`)
+- **Start Date**: 2021-01-01
+- **Catchup**: Disabled (incremental loads only)
+- **Tags**: `warehouse`, `dq`
+
+**Tasks:**
+1. **load_fact_trips**: Incrementally loads aggregated trip data into `analytics.fact_trips` fact table
+   - Aggregates data from `staging.stg_yellow_taxi`
+   - Dimensions: trip_date, vendor_id, pickup_location_id, dropoff_location_id, payment_type
+   - Metrics: trip_count, total_passengers, total_distance, total_fare, total_tips, total_revenue
+
+2. **dq_row_count**: Data quality check ensuring fact table is not empty
+
+3. **dq_no_null_trip_date**: Data quality check ensuring no NULL trip_date values
+
+4. **dq_no_duplicates**: Data quality check ensuring no duplicate grain (composite key uniqueness)
+
+**Output Tables:**
+- `analytics.fact_trips` — Dimensional fact table for trip analytics
+
+**Note**: This DAG assumes `staging.stg_yellow_taxi` table exists. This table should be populated either through:
+- Manual SQL scripts
+- dbt transformations (models available in `dbt_project/ny_taxi_dbt/`)
+- Additional Airflow DAG tasks
+
+### dbt Models (Optional)
+
+The project includes dbt models for data transformation:
+
+**Staging Layer** (`models/staging/`):
+- `stg_yellow_taxi` — Cleaned and standardized Yellow Taxi trip data
+
+**Analytics Layer** (`models/analytics/`):
+- `fact_trips` — Fact table with surrogate key (trip_id) for individual trips
+
+To use dbt models, run dbt separately or integrate dbt operators into Airflow DAGs.
 
 ---
 
@@ -200,6 +289,12 @@ NYC Yellow Taxi trip data from [DataTalksClub GitHub releases](https://github.co
 **Issue**: Port already in use
 - **Solution**: Change ports in `docker-compose.yaml` or stop conflicting services
 
+**Issue**: `warehouse_fact_trips` DAG fails with "relation staging.stg_yellow_taxi does not exist"
+- **Solution**: Ensure the staging table exists. You may need to create it manually or run dbt models first
+
+**Issue**: Postgres connection not found
+- **Solution**: Ensure the `pg_ny_taxi` connection is configured in Airflow Admin → Connections
+
 ### Viewing Logs
 
 ```bash
@@ -208,7 +303,7 @@ docker-compose logs
 
 # Specific service
 docker-compose logs airflow-scheduler
-docker-compose logs airflow-worker
+docker-compose logs airflow-webserver
 
 # Follow logs
 docker-compose logs -f
@@ -226,20 +321,30 @@ docker-compose down -v
 
 ---
 
-## 📁 Project Structure
+## 📁 Complete Project Structure
 
 ```
 airflow/
 ├── dags/
-│   └── data_ingestion_dag.py    # Main DAG definition
-├── data/                         # Downloaded data files (gitignored)
-├── logs/                         # Airflow logs (gitignored)
-├── plugins/                      # Custom Airflow plugins
-├── scripts/                      # Utility scripts
-│   └── ensure_database.py        # Database initialization script
-├── docker-compose.yaml           # Docker Compose configuration
-├── requirements.txt              # Python dependencies
-├── .env                          # Your environment variables (gitignored)
+│   ├── data_ingestion_dag.py          # Main data ingestion DAG
+│   └── warehouse_fact_trips_dag.py    # Fact table loading DAG
+├── dbt_project/
+│   └── ny_taxi_dbt/                   # dbt transformation project
+│       ├── models/
+│       │   ├── staging/               # Staging layer models
+│       │   ├── analytics/             # Analytics layer models
+│       │   └── sources/               # Source definitions
+│       └── dbt_project.yml
+├── data/                              # Downloaded data files (gitignored)
+├── sql/                               # SQL transformation scripts
+│   └── transform.sql
+├── scripts/                           # Utility scripts
+│   └── ensure_database.py            # Database initialization
+├── logs/                              # Airflow logs (gitignored)
+├── plugins/                           # Custom Airflow plugins
+├── docker-compose.yaml                # Docker Compose configuration
+├── requirements.txt                   # Python dependencies
+├── .env                               # Environment variables (gitignored)
 ├── .gitignore
 └── README.md
 ```
@@ -249,7 +354,7 @@ airflow/
 ## 🔒 Security Notes
 
 - **Default credentials**: Change default Airflow username/password in production
-- **Database passwords**: Update PostgreSQL credentials in `docker-compose.yaml` for production
+- **Database passwords**: Update PostgreSQL credentials in `.env` file for production
 - **Fernet Key**: Always use a unique Fernet key in production
 - **Environment variables**: Never commit `.env` file to version control
 
@@ -258,4 +363,3 @@ airflow/
 ## 📝 License
 
 All rights reserved.
-
