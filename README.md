@@ -1,6 +1,6 @@
 # 🚖 NYC Taxi Data Pipeline with Apache Airflow
 
-This project automates the **download, ingestion, transformation, and warehousing** of NYC Yellow Taxi data into a **PostgreSQL** database using **Apache Airflow**. The pipeline implements a modern ELT (Extract, Load, Transform) pattern with staging and analytics layers.
+This project automates the **download, ingestion, and warehousing** of NYC Yellow Taxi data into a **PostgreSQL** database using **Apache Airflow**. The pipeline follows an ELT pattern and includes optional dbt models for a staging + analytics layer.
 
 ---
 
@@ -11,7 +11,7 @@ The pipeline consists of two main workflows:
 ### 1. Data Ingestion Pipeline (`data_ingestion_local`)
 - **Extract**: Downloads monthly NYC Yellow Taxi trip data from the DataTalksClub GitHub releases
 - **Load**: Uses Pandas and SQLAlchemy to load the dataset into a PostgreSQL table (`yellow_taxi_data`)
-- **Transform**: Basic data transformation using SQL
+- **Transform**: Runs `sql/transform.sql` (currently a placeholder `SELECT 1` so the task succeeds)
 
 ### 2. Warehouse Fact Table Pipeline (`warehouse_fact_trips`)
 - **Load Fact Table**: Aggregates trip data from staging into a dimensional fact table
@@ -22,7 +22,7 @@ The pipeline consists of two main workflows:
 - **PostgreSQL** — data warehouse
 - **Docker & Docker Compose** — containerized setup
 - **Python, Pandas, SQLAlchemy** — data processing
-- **dbt (Data Build Tool)** — SQL transformation layer (optional, models available)
+- **dbt (Data Build Tool)** — optional SQL transformation layer (DAG included + models available)
 - **Postgres Operators** — database operations and data quality checks
 
 ### 🔹 Data Flow
@@ -105,7 +105,9 @@ python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().d
 
 ### 4️⃣ Configure Environment Variables
 
-Create a `.env` file in the project root and add your generated Fernet key and database configuration:
+Create a `.env` file in the project root and add your generated Fernet key and **Postgres connection details**.
+
+This repo’s `docker-compose.yaml` is configured to point Airflow’s metadata DB at `${DB_HOST}:${DB_PORT}/${DB_NAME}` (i.e., an external Postgres/RDS-style database), rather than running a local `postgres` container.
 
 ```bash
 # Create .env file
@@ -180,7 +182,11 @@ docker-compose up -d
 
 ### Database Configuration
 
-The pipeline uses a PostgreSQL database (configured via environment variables). The database is automatically created during initialization if it doesn't exist.
+The pipeline uses a PostgreSQL database (configured via environment variables).
+
+Notes:
+- **Airflow metadata DB**: `docker-compose.yaml` sets `AIRFLOW__DATABASE__SQL_ALCHEMY_CONN` using `DB_*` env vars.
+- **Target DB creation**: the helper script `scripts/ensure_database.py` can create the target database (defaults to `ny_taxi`) if it doesn’t exist, but it is **not automatically run by docker-compose**.
 
 - **Host**: Configured via `DB_HOST` environment variable (e.g., AWS RDS endpoint)
 - **Port**: Configured via `DB_PORT` environment variable (default: `5432`)
@@ -232,6 +238,8 @@ NYC Yellow Taxi trip data from [DataTalksClub GitHub releases](https://github.co
 **Output Table:**
 - `yellow_taxi_data` — Raw ingested taxi trip data
 
+**Important**: `transform_data` currently runs `sql/transform.sql`, which is a placeholder `SELECT 1` (it does not create staging tables).
+
 ### DAG 2: Warehouse Fact Table (`warehouse_fact_trips`)
 
 **Schedule**: Daily (`@daily`)
@@ -254,10 +262,14 @@ NYC Yellow Taxi trip data from [DataTalksClub GitHub releases](https://github.co
 **Output Tables:**
 - `analytics.fact_trips` — Dimensional fact table for trip analytics
 
-**Note**: This DAG assumes `staging.stg_yellow_taxi` table exists. This table should be populated either through:
-- Manual SQL scripts
-- dbt transformations (models available in `dbt_project/ny_taxi_dbt/`)
-- Additional Airflow DAG tasks
+**Note**: This DAG assumes the following already exist:
+- `staging.stg_yellow_taxi` (source table/view with the columns referenced in the DAG SQL)
+- `analytics.fact_trips` (target table with the columns referenced in the DAG SQL)
+
+You can create/populate these via:
+- **dbt** (recommended): run the dbt models in `dbt_project/ny_taxi_dbt/`
+- Manual SQL / migrations
+- Additional Airflow tasks
 
 ### dbt Models (Optional)
 
@@ -270,6 +282,15 @@ The project includes dbt models for data transformation:
 - `fact_trips` — Fact table with surrogate key (trip_id) for individual trips
 
 To use dbt models, run dbt separately or integrate dbt operators into Airflow DAGs.
+
+### DAG 3: dbt Transform (`dbt_transform_pipeline`) (Optional)
+
+There is also a dbt DAG:
+- `dbt_transform_pipeline` (schedule: `@daily`)
+  - `dbt run`
+  - `dbt test`
+
+The container mounts `dbt_project/ny_taxi_dbt/.dbt/` into `/opt/airflow/.dbt` so dbt can read profiles from there.
 
 ---
 
@@ -291,6 +312,9 @@ To use dbt models, run dbt separately or integrate dbt operators into Airflow DA
 
 **Issue**: `warehouse_fact_trips` DAG fails with "relation staging.stg_yellow_taxi does not exist"
 - **Solution**: Ensure the staging table exists. You may need to create it manually or run dbt models first
+
+**Issue**: dbt DAG fails with profile/connection errors
+- **Solution**: Check `dbt_project/ny_taxi_dbt/.dbt/profiles.yml` and ensure credentials are available (it uses `DB_PASSWORD` via `env_var` and `sslmode: require`).
 
 **Issue**: Postgres connection not found
 - **Solution**: Ensure the `pg_ny_taxi` connection is configured in Airflow Admin → Connections

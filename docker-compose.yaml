@@ -39,6 +39,7 @@ x-airflow-common: &airflow-common
     - ./scripts:/opt/airflow/scripts
     - ./dbt_project:/opt/airflow/dbt_project
     - ./dbt_project/ny_taxi_dbt/.dbt:/opt/airflow/.dbt
+    
 
   user: "${AIRFLOW_UID:-50000}:0"
 

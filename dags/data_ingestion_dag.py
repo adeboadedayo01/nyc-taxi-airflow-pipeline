@@ -36,7 +36,7 @@ def ingest_to_postgres(**context):
         chunk.columns = (
             chunk.columns
             .str.strip()
-            .str.lower()
+           # .str.lower()
         )
 
         chunk.to_sql(

@@ -11,5 +11,5 @@ select
     tip_amount,
     total_amount,
     payment_type
-from {{ source('staging', 'stg_yellow_taxi') }}
+from {{ source('staging', 'yellow_taxi') }}
 

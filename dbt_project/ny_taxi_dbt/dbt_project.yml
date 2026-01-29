@@ -1,11 +1,8 @@
 name: 'ny_taxi_dbt'
-
-# This setting configures which "profile" dbt uses for this project.
 profile: 'ny_taxi_dbt'
-
 config-version: 2
 
-source-paths: ["models"]
+model-paths: ["models"]
 macro-paths: ["macros"]
 snapshot-paths: ["snapshots"]
 seed-paths: ["seeds"]
@@ -17,13 +14,10 @@ clean-targets:
   - "dbt_modules"
 
 models:
-  models:
   ny_taxi_dbt:
     staging:
       +schema: staging
       +materialized: view
-
     analytics:
       +schema: analytics
       +materialized: table
-

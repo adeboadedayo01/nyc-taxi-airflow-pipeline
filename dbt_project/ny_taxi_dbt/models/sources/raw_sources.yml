@@ -6,7 +6,7 @@ sources:
     schema: staging
 
     tables:
-      - name: stg_yellow_taxi
+      - name: yellow_taxi
         description: "Raw Yellow Taxi trip records from ingestion pipeline"
 
         columns:
