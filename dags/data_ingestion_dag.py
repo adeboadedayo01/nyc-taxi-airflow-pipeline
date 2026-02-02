@@ -36,7 +36,7 @@ def ingest_to_postgres(**context):
         chunk.columns = (
             chunk.columns
             .str.strip()
-           # .str.lower()
+            .str.lower()
         )
 
         chunk.to_sql(
@@ -64,6 +64,7 @@ with DAG(
         "retry_delay": timedelta(minutes=3),
     },
     tags=["zoomcamp"],
+    template_searchpath=['/opt/airflow/sql'],
 ) as dag:
 
     create_data_dir = PythonOperator(
@@ -90,7 +91,7 @@ with DAG(
     transform_task = PostgresOperator(
         task_id="transform_data",
         postgres_conn_id=POSTGRES_CONN_ID,
-        sql="sql/transform.sql"
+        sql="transform.sql"
     )
 
 
