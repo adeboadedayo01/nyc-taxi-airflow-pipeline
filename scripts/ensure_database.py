@@ -9,9 +9,9 @@ import sys
 import time
 from pathlib import Path
 
-from dotenv import load_dotenv
-import psycopg2
-from psycopg2 import sql
+from dotenv import load_dotenv # type: ignore
+import psycopg2 # type: ignore
+from psycopg2 import sql # type: ignore
 
 # ======================================================
 # Load environment variables
