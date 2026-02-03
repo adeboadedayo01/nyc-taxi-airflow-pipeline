@@ -1,37 +1,33 @@
 
 sources:
-  - name: staging
+  - name: raw
     description: "Raw and lightly processed NY Yellow Taxi data loaded via Airflow"
-    database: airflow
-    schema: staging
+    database: ny_taxi
+    schema: public
 
     tables:
-      - name: yellow_taxi
+      - name: yellow_taxi_data
         description: "Raw Yellow Taxi trip records from ingestion pipeline"
 
         columns:
-          - name: vendor_id
+          - name: vendorid
             tests:
               - not_null
 
-          - name: pickup_datetime
+          - name: tpep_pickup_datetime
             tests:
               - not_null
 
-          - name: dropoff_datetime
+          - name: tpep_dropoff_datetime
+            tests:
+              - not_null
 
-          - name: pickup_location_id
+          - name: store_and_fwd_flag
+            tests:
+              - not_null
 
-          - name: dropoff_location_id
-
+          - name: ratecodeid
+            tests:
+              - not_null
+         
           - name: passenger_count
-
-          - name: trip_distance
-
-          - name: fare_amount
-
-          - name: tip_amount
-
-          - name: total_amount
-
-          - name: payment_type
