@@ -84,6 +84,8 @@ with DAG(
             dropoff_location_id,
             payment_type;
         """
+        ON CONFLICT (trip_date, vendor_id, pickup_location_id, dropoff_location_id, payment_type)
+        DO NOTHING;
     )
 
     # 2️⃣ DQ: fact table is not empty
@@ -131,4 +133,4 @@ with DAG(
     )
 
     # ✅ Task order
-    load_fact_trips >> dq_row_count >> dq_no_nulls >> dq_no_duplicates
+    create_analytics_schema_and_fact_table >> load_fact_trips >> dq_row_count >> dq_no_nulls >> dq_no_duplicates
