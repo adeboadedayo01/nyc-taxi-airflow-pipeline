@@ -13,6 +13,34 @@ with DAG(
     tags=["warehouse", "dq"],
 ) as dag:
 
+    create_analytics_schema_and_fact_table = PostgresOperator(
+        task_id="create_analytics_schema_and_fact_table",
+        postgres_conn_id=POSTGRES_CONN_ID,
+        sql="""
+        -- Create schema if it doesn't exist
+        CREATE SCHEMA IF NOT EXISTS analytics;
+
+        -- Create the fact table if it doesn't exist (with proper types & PK)
+        CREATE TABLE IF NOT EXISTS analytics.fact_trips (
+            trip_date               DATE            NOT NULL,
+            vendor_id               INTEGER,
+            pickup_location_id      INTEGER,
+            dropoff_location_id     INTEGER,
+            payment_type            INTEGER,
+            
+            trip_count              BIGINT          NOT NULL DEFAULT 0,
+            total_passengers        BIGINT          NOT NULL DEFAULT 0,
+            total_distance          DOUBLE PRECISION NOT NULL DEFAULT 0.0,
+            total_fare              DOUBLE PRECISION NOT NULL DEFAULT 0.0,
+            total_tips              DOUBLE PRECISION NOT NULL DEFAULT 0.0,
+            total_revenue           DOUBLE PRECISION NOT NULL DEFAULT 0.0,
+            
+            -- Composite primary key to prevent accidental duplicates on re-runs
+            PRIMARY KEY (trip_date, vendor_id, pickup_location_id, dropoff_location_id, payment_type)
+        );
+        """
+    )
+
     # 1️⃣ Load / increment fact table
     load_fact_trips = PostgresOperator(
         task_id="load_fact_trips",
