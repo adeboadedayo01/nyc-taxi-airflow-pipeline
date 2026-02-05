@@ -82,10 +82,10 @@ with DAG(
             vendor_id,
             pickup_location_id,
             dropoff_location_id,
-            payment_type;
-        """
+            payment_type
         ON CONFLICT (trip_date, vendor_id, pickup_location_id, dropoff_location_id, payment_type)
         DO NOTHING;
+        """
     )
 
     # 2️⃣ DQ: fact table is not empty
