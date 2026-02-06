@@ -1,7 +1,7 @@
 from datetime import datetime
-from airflow import DAG # type: ignore
-from airflow.providers.postgres.operators.postgres import PostgresOperator # type: ignore
-from airflow.providers.common.sql.operators.sql import SQLCheckOperator # type: ignore
+from airflow import DAG #type: ignore
+from airflow.providers.postgres.operators.postgres import PostgresOperator #type: ignore
+from airflow.providers.common.sql.operators.sql import SQLCheckOperator #type: ignore
 
 POSTGRES_CONN_ID = "pg_ny_taxi"
 
@@ -11,16 +11,51 @@ with DAG(
     schedule="@daily",
     catchup=False,
     tags=["warehouse", "dq"],
+    max_active_runs=1,
 ) as dag:
 
+    # 0️⃣ Create staging schema
+    create_staging_schema = PostgresOperator(
+        task_id="create_staging_schema",
+        postgres_conn_id=POSTGRES_CONN_ID,
+        sql="""
+        CREATE SCHEMA IF NOT EXISTS staging;
+        """
+    )
+
+    # 0.5️⃣ Create staging.stg_yellow_taxi 
+    create_stg_yellow_taxi_view = PostgresOperator(
+        task_id="create_stg_yellow_taxi_view",
+        postgres_conn_id=POSTGRES_CONN_ID,
+        sql="""
+        CREATE OR REPLACE VIEW staging.stg_yellow_taxi AS
+        SELECT
+            vendorid             AS vendor_id,
+            tpep_pickup_datetime  AS pickup_datetime,
+            tpep_dropoff_datetime AS dropoff_datetime,
+            pulocationid          AS pickup_location_id,
+            dolocationid          AS dropoff_location_id,
+            passenger_count,
+            trip_distance,
+            fare_amount,
+            tip_amount,
+            total_amount,
+            payment_type
+        FROM public.yellow_taxi_data
+        WHERE tpep_pickup_datetime IS NOT NULL
+          AND trip_distance >= 0
+          AND total_amount >= 0
+        ;
+        """
+    )
+
+    # 1️⃣ Create analytics schema + fact table
     create_analytics_schema_and_fact_table = PostgresOperator(
         task_id="create_analytics_schema_and_fact_table",
         postgres_conn_id=POSTGRES_CONN_ID,
         sql="""
-        -- Create schema if it doesn't exist
         CREATE SCHEMA IF NOT EXISTS analytics;
 
-        -- Create the fact table if it doesn't exist (with proper types & PK)
         CREATE TABLE IF NOT EXISTS analytics.fact_trips (
             trip_date               DATE            NOT NULL,
             vendor_id               INTEGER,
@@ -35,13 +70,12 @@ with DAG(
             total_tips              DOUBLE PRECISION NOT NULL DEFAULT 0.0,
             total_revenue           DOUBLE PRECISION NOT NULL DEFAULT 0.0,
             
-            -- Composite primary key to prevent accidental duplicates on re-runs
             PRIMARY KEY (trip_date, vendor_id, pickup_location_id, dropoff_location_id, payment_type)
         );
         """
     )
 
-    # 1️⃣ Load / increment fact table
+    # 2️⃣ Load / increment fact table
     load_fact_trips = PostgresOperator(
         task_id="load_fact_trips",
         postgres_conn_id=POSTGRES_CONN_ID,
@@ -75,7 +109,7 @@ with DAG(
         WHERE pickup_datetime::date >
             COALESCE(
                 (SELECT MAX(trip_date) FROM analytics.fact_trips),
-                '1900-01-01'
+                '1900-01-01'::date
             )
         GROUP BY
             pickup_datetime::date,
@@ -88,14 +122,13 @@ with DAG(
         """
     )
 
-    # 2️⃣ DQ: fact table is not empty
+    # DQ checks (unchanged)
     dq_row_count = SQLCheckOperator(
         task_id="dq_row_count",
         conn_id=POSTGRES_CONN_ID,
         sql="SELECT COUNT(*) > 0 FROM analytics.fact_trips;"
     )
 
-    # 3️⃣ DQ: no NULL trip_date
     dq_no_nulls = SQLCheckOperator(
         task_id="dq_no_null_trip_date",
         conn_id=POSTGRES_CONN_ID,
@@ -106,7 +139,6 @@ with DAG(
         """
     )
 
-    # 4️⃣ DQ: no duplicate grain
     dq_no_duplicates = SQLCheckOperator(
         task_id="dq_no_duplicates",
         conn_id=POSTGRES_CONN_ID,
@@ -132,5 +164,13 @@ with DAG(
         """
     )
 
-    # ✅ Task order
-    create_analytics_schema_and_fact_table >> load_fact_trips >> dq_row_count >> dq_no_nulls >> dq_no_duplicates
+    # Task order: staging schema → staging view → analytics + table → load → DQ
+    (
+        create_staging_schema 
+        >> create_stg_yellow_taxi_view 
+        >> create_analytics_schema_and_fact_table 
+        >> load_fact_trips 
+        >> dq_row_count 
+        >> dq_no_nulls 
+        >> dq_no_duplicates
+    )

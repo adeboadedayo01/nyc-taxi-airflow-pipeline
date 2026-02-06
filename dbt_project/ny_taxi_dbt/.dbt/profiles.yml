@@ -8,6 +8,6 @@ ny_taxi_dbt:
       password: "{{ env_var('DB_PASSWORD') }}"
       port: "{{ env_var('DB_PORT') | int }}"
       dbname: "{{ env_var('DB_NAME') }}"
-      schema: analytics
+      schema: staging
       threads: 4
       sslmode: require
